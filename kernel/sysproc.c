@@ -117,10 +117,24 @@ uint64 sys_schedset(void)
     return 0;
 }
 
-uint64 sys_va2pa(void)
-{
-    printf("TODO: IMPLEMENT ME [%s@%s (line %d)]", __func__, __FILE__, __LINE__);
-    return 0;
+pagetable_t pagetable;
+uint64 sys_va2pa(void) {
+    int address = 0;
+    argint(0, &address);
+
+    int pid = 0;
+    argint(1, &pid);
+    struct proc *foo;
+    if (pid == -1) {
+        pagetable = myproc()->pagetable;
+    } else {
+        foo = findProc(pid);
+        if (foo == 0) {
+            return 0;
+        }
+        pagetable = foo->pagetable;
+    }
+    return walkaddr(pagetable, address);
 }
 
 uint64 sys_pfreepages(void)
@@ -128,3 +142,4 @@ uint64 sys_pfreepages(void)
     printf("%d\n", FREE_PAGES);
     return 0;
 }
+
