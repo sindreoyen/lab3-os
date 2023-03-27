@@ -14,3 +14,10 @@ user/initcode
 user/initcode.asm
 user/initcode.out
 xv6.out
+user/_*
+mkfs/mkfs
+*.img
+*.asm
+*.sym
+xv6.out.
+*.S
