@@ -1,0 +1,16 @@
+
+kernel/file.d
+__pycache__/gradelib.cpython-310.pyc
+kernel/*.o
+kernel/*.d
+user/*.o
+user/*.d
+
+kernel/kernel
+kernel/kernel.asm
+kernel/kernel.sym
+test.ans
+user/initcode
+user/initcode.asm
+user/initcode.out
+xv6.out
