@@ -46,10 +46,10 @@ usertrap(void)
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
-  
+
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
+
   if(r_scause() == 8){
     // system call
 
@@ -65,9 +65,17 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } 
+  // page fault scause id 0x0f
+  else if (r_scause() == 0x0f) {
+    // page fault
+    if ((cowPageFault(p->pagetable, r_stval())) < 0)
+      p->killed = 1;
+  }
+  else if ((which_dev = devintr()) != 0) {
     // ok
-  } else {
+  }
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     setkilled(p);
@@ -105,11 +113,10 @@ usertrapret(void)
   p->trapframe->kernel_satp = r_satp();         // kernel page table
   p->trapframe->kernel_sp = p->kstack + PGSIZE; // process's kernel stack
   p->trapframe->kernel_trap = (uint64)usertrap;
-  p->trapframe->kernel_hartid = r_tp();         // hartid for cpuid()
+  p->trapframe->kernel_hartid = r_tp(); // cpuid() hartid
 
   // set up the registers that trampoline.S's sret will use
   // to get to user space.
-  
   // set S Previous Privilege mode to User.
   unsigned long x = r_sstatus();
   x &= ~SSTATUS_SPP; // clear SPP to 0 for user mode
@@ -122,7 +129,7 @@ usertrapret(void)
   // tell trampoline.S the user page table to switch to.
   uint64 satp = MAKE_SATP(p->pagetable);
 
-  // jump to userret in trampoline.S at the top of memory, which 
+  // jump to userret in trampoline.S at the top of memory, which
   // switches to the user page table, restores user registers,
   // and switches to user mode with sret.
   uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
@@ -131,14 +138,14 @@ usertrapret(void)
 
 // interrupts and exceptions from kernel code go here via kernelvec,
 // on whatever the current kernel stack is.
-void 
+void
 kerneltrap()
 {
   int which_dev = 0;
   uint64 sepc = r_sepc();
   uint64 sstatus = r_sstatus();
   uint64 scause = r_scause();
-  
+
   if((sstatus & SSTATUS_SPP) == 0)
     panic("kerneltrap: not from supervisor mode");
   if(intr_get() != 0)
@@ -174,13 +181,13 @@ clockintr()
 // returns 2 if timer interrupt,
 // 1 if other device,
 // 0 if not recognized.
-int
+int 
 devintr()
 {
   uint64 scause = r_scause();
 
-  if((scause & 0x8000000000000000L) &&
-     (scause & 0xff) == 9){
+  if((scause & 0x8000000000000000L) && 
+  (scause & 0xff) == 9){
     // this is a supervisor external interrupt, via PLIC.
 
     // irq indicates which device interrupted.
@@ -208,7 +215,6 @@ devintr()
     if(cpuid() == 0){
       clockintr();
     }
-    
     // acknowledge the software interrupt by clearing
     // the SSIP bit in sip.
     w_sip(r_sip() & ~2);
@@ -218,4 +224,3 @@ devintr()
     return 0;
   }
 }
-

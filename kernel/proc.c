@@ -831,8 +831,7 @@ void schedset(int id)
     printf("Scheduler successfully changed to %s\n", available_schedulers[id].name);
 }
 
-struct proc *
-findProc(int id) {
+struct proc * findProc(int id) {
     struct proc *p;
     for (p = proc; p < &proc[NPROC]; p++) {
         if (p->pid == id) {

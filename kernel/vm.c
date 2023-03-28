@@ -308,7 +308,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -316,20 +315,21 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    *pte &= ~PTE_W;
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    // increase ref counter
+    refCountIncrement(pa);
+    // map va to pa
+    if (mappages(new, i, PGSIZE, (uint64)pa, flags) != 0)
+    {
       goto err;
     }
   }
   return 0;
 
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
+  err:
+    uvmunmap(new, 0, i / PGSIZE, 1);
+    return -1;
 }
 
 // mark a PTE invalid for user access.
@@ -338,7 +338,7 @@ void
 uvmclear(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
-  
+
   pte = walk(pagetable, va, 0);
   if(pte == 0)
     panic("uvmclear");
@@ -414,7 +414,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     if(n > max)
       n = max;
 
-    char *p = (char *) (pa0 + (srcva - va0));
+    char *p = (char *)(pa0 + (srcva - va0));
     while(n > 0){
       if(*p == '\0'){
         *dst = '\0';
@@ -436,4 +436,29 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+
+int cowPageFault(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte = walk(pagetable, va, 0);
+  
+  // check if the page is valid and user-accessible
+  if (pte == 0 || !(*pte & PTE_U) || !(*pte & PTE_V))
+    return -1; // invalid address or not user-accessible
+  uint64 pa1 = PTE2PA(*pte);
+  uint64 pa2 = (uint64)kalloc();
+  
+  // check if we have enough memory
+  if (pa2 == 0)
+    return -1; // out of memory
+  memmove((void *)pa2, (void *)pa1, PGSIZE);
+  *pte = PA2PTE(pa2) | PTE_U | PTE_V | PTE_W | PTE_X | PTE_R;
+
+  // Invalidate the TLB entry, since we have updated the page table
+  sfence_vma(0, va);
+
+  if (getRefCount(pa1) == 0)
+    kfree((void *)pa1);
+  return 0;
 }
