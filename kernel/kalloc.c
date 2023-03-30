@@ -55,25 +55,26 @@ void freerange(void *pa_start, void *pa_end)
 void kfree(void *pa)
 {
     struct run *r;
-    r = (struct run *)pa;
+
+    r = (struct run *) pa;
     if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
         panic("kfree");
     // acquiring the spinlock to get the true refcount, 
     // and then decrease the refcount and release the lock
     acquire(&kmem.lock);
-    int pn = (uint64)r / PGSIZE;
-    if (refcounter[pn] < 1)
+    int pageNum = (uint64) r / PGSIZE; // r = pa
+    if (refcounter[pageNum] < 1)
         panic("kfree panic");
-    refcounter[pn]--;
-    int tmp = refcounter[pn];
+    refcounter[pageNum]--;
+    int count = refcounter[pageNum];
     release(&kmem.lock);
 
-    if (tmp > 0) {
-        return;
-    }
+    if (count > 0) return;
+    
     // Fill with junk to catch dangling refs.
     memset(pa, 1, PGSIZE);
 
+    // acquire the lock again to add the page to the freelist
     acquire(&kmem.lock);
     r->next = kmem.freelist;
     kmem.freelist = r;
@@ -93,12 +94,12 @@ kalloc(void)
 
     if (r)
     {
-        int pn = (uint64)r / PGSIZE;
-        if (refcounter[pn] != 0)
+        int pageNum = (uint64)r / PGSIZE;
+        if (refcounter[pageNum] != 0)
         {
             panic("refcounter kalloc panic");
         }
-        refcounter[pn] = 1;
+        refcounter[pageNum] = 1;
         kmem.freelist = r->next;
     }
 
@@ -110,25 +111,25 @@ kalloc(void)
 }
 
 // Increase the refcount of the page
-void refCountIncrement(uint64 pa)
+void refCountIncrement(uint64 address)
 {
-    // pn is the page number
-    int pn = pa / PGSIZE;
-    if (pa > PHYSTOP || refcounter[pn] < 1)
+    // pageNum is the page number
+    int pageNum = address / PGSIZE;
+    if (address > PHYSTOP || refcounter[pageNum] < 1)
     {
         panic("Panic when increasing ref counter");
     }
     // increase the refcounter
-    refcounter[pn]++;
+    refcounter[pageNum]++;
 }
 
 // Get the refcount of the page
-int getRefCount(uint64 pa)
+int getRefCount(uint64 address)
 {
-    int pn = pa / PGSIZE;
-    if (pa > PHYSTOP)
+    int pageNum = address / PGSIZE;
+    if (address > PHYSTOP)
     {
         panic("Panic when getting ref counter");
     }
-    return refcounter[pn];
+    return refcounter[pageNum];
 }
