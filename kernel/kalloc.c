@@ -72,7 +72,7 @@ void kfree(void *pa)
     if (count > 0) return;
     
     // Fill with junk to catch dangling refs.
-    memset(pa, 1, PGSIZE);
+    memset(pa, 0, PGSIZE);
 
     // acquire the lock again to add the page to the freelist
     acquire(&kmem.lock);
@@ -106,7 +106,7 @@ kalloc(void)
     release(&kmem.lock);
 
     if (r)
-        memset((char *)r, 5, PGSIZE); // fill with junk
+        memset((char *)r, 0, PGSIZE); // fill with junk
     return (void *)r;
 }
 
@@ -117,10 +117,24 @@ void refCountIncrement(uint64 address)
     int pageNum = address / PGSIZE;
     if (address > PHYSTOP || refcounter[pageNum] < 1)
     {
-        panic("Panic when increasing ref counter");
+        printf("Error in attempting to increment refcount of page %d, which has refcount %d", pageNum, refcounter[pageNum]);
+        return;
     }
     // increase the refcounter
     refcounter[pageNum]++;
+}
+
+void refCountDecrement(uint64 address)
+{
+    // pageNum is the page number
+    int pageNum = address / PGSIZE;
+    if (address > PHYSTOP || refcounter[pageNum] < 1)
+    {
+        printf("Error in attempting to decrement refcount of page %d, which has refcount %d", pageNum, refcounter[pageNum]);
+        return;
+    }
+    // decrease the refcounter
+    refcounter[pageNum]--;
 }
 
 // Get the refcount of the page
@@ -129,7 +143,8 @@ int getRefCount(uint64 address)
     int pageNum = address / PGSIZE;
     if (address > PHYSTOP)
     {
-        panic("Panic when getting ref counter");
+        printf("Error in attempting to get refcount of page %d, which has refcount %d", pageNum, refcounter[pageNum]);
+        return -1;
     }
     return refcounter[pageNum];
 }

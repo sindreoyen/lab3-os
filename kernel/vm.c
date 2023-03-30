@@ -303,27 +303,34 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz, int cow)
 {
+  // pte is a pointer to the page table entry (PTE) in the page table
   pte_t *pte;
   uint64 pa, i;
   uint flags;
 
   for(i = 0; i < sz; i += PGSIZE){
+    // Checking if the page table entry exists
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
+    // Checking if the page is present
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
+    
+    // Getting the physical address of the page table entry
     pa = PTE2PA(*pte);
-    *pte &= ~PTE_W;
+
+    // Remove write permissions for child.
+    if (cow) {
+      *pte &= ~PTE_W;
+    }
     flags = PTE_FLAGS(*pte);
     // increase ref counter
     refCountIncrement(pa);
     // map va to pa
     if (mappages(new, i, PGSIZE, (uint64)pa, flags) != 0)
-    {
       goto err;
-    }
   }
   return 0;
 
@@ -439,26 +446,43 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 }
 
 
+
+/**
+ * @brief Given a parent process's page table, copy
+ * the shared pages into a child's page table.
+ * Returns 0 on success, -1 if invalid address or not user-accessible,
+ * -2 if out of memory.
+ * @param pagetable Parent's page table
+ * @param va Virtual address of the shared page
+*/
 int cowPageFault(pagetable_t pagetable, uint64 va)
 {
+  // get the page table entry
   pte_t *pte = walk(pagetable, va, 0);
   
   // check if the page is valid and user-accessible
   if (pte == 0 || !(*pte & PTE_U) || !(*pte & PTE_V))
     return -1; // invalid address or not user-accessible
-  uint64 pa1 = PTE2PA(*pte);
-  uint64 pa2 = (uint64)kalloc();
+  
+  // getting pa from pte
+  uint64 pte_pa = PTE2PA(*pte);
+  // attempting to allocate a new page
+  uint64 new_pa = (uint64) kalloc();
   
   // check if we have enough memory
-  if (pa2 == 0)
-    return -1; // out of memory
-  memmove((void *)pa2, (void *)pa1, PGSIZE);
-  *pte = PA2PTE(pa2) | PTE_U | PTE_V | PTE_W | PTE_X | PTE_R;
+  if (new_pa == 0)
+    return -2; // out of memory
+  
+  // moving the data from the old page to the new page
+  memmove((void *)new_pa, (void *)pte_pa, PGSIZE);
+  *pte = PA2PTE(new_pa) | PTE_U | PTE_V | PTE_W | PTE_X | PTE_R;
 
   // Invalidate the TLB entry, since we have updated the page table
   sfence_vma(0, va);
 
-  if (getRefCount(pa1) == 0)
-    kfree((void *)pa1);
+  if (getRefCount(pte_pa) < 1)
+    kfree((void *)pte_pa);
+  else 
+    refCountDecrement(pte_pa);
   return 0;
 }
